@@ -50,12 +50,18 @@ fi
 chmod +x "$INSTALL_DIR/ace-autofeed.py"
 echo "       installed at $INSTALL_DIR/ace-autofeed.py"
 
-# 3) Stop any running instance (idempotent re-install)
+# 3) Stop any running instance (idempotent re-install).
+# /proc/<pid>/cmdline scan is the reliable way on busybox (no pgrep/pkill/pidof).
 echo "[2/4] stopping any existing daemon..."
-for pid in $(ps | awk '/ace-autofeed.py/ && !/grep/ && !/awk/ {print $1}'); do
-    kill -9 "$pid" 2>/dev/null || true
+killed=0
+for cmdline in /proc/[0-9]*/cmdline; do
+    if grep -q "ace-autofeed.py" "$cmdline" 2>/dev/null; then
+        pid=$(basename "$(dirname "$cmdline")")
+        kill -9 "$pid" 2>/dev/null && killed=$((killed + 1))
+    fi
 done
-sleep 1
+[ "$killed" -gt 0 ] && echo "       killed $killed existing instance(s)"
+sleep 2
 
 # 4) Install Rinkhals app for auto-start
 echo "[3/4] installing Rinkhals app for auto-start..."
@@ -69,8 +75,12 @@ nohup python3 $INSTALL_DIR/ace-autofeed.py \\
 EOF
 cat > "$APP_DIR/stop.sh" <<'EOF'
 #!/bin/sh
-for pid in $(ps | awk '/ace-autofeed.py/ && !/grep/ && !/awk/ {print $1}'); do
-    kill "$pid" 2>/dev/null || true
+# /proc-scan is the reliable way to find PIDs on busybox (no pgrep/pkill)
+for cmdline in /proc/[0-9]*/cmdline; do
+    if grep -q "ace-autofeed.py" "$cmdline" 2>/dev/null; then
+        pid=$(basename "$(dirname "$cmdline")")
+        kill "$pid" 2>/dev/null || true
+    fi
 done
 EOF
 chmod +x "$APP_DIR/start.sh" "$APP_DIR/stop.sh"
@@ -80,8 +90,15 @@ echo "       app installed at $APP_DIR"
 echo "[4/4] starting daemon..."
 sh "$APP_DIR/start.sh"
 sleep 2
-if ps | grep -v grep | grep -q ace-autofeed.py; then
-    PID=$(ps | awk '/ace-autofeed.py/ && !/grep/ {print $1; exit}')
+# /proc-scan: reliable way to find the daemon's PID on busybox
+PID=""
+for cmdline in /proc/[0-9]*/cmdline; do
+    if grep -q "ace-autofeed.py" "$cmdline" 2>/dev/null; then
+        PID=$(basename "$(dirname "$cmdline")")
+        break
+    fi
+done
+if [ -n "$PID" ]; then
     echo "       running (PID $PID)"
     echo
     echo "=== install complete ==="
