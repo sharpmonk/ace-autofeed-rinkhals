@@ -162,6 +162,7 @@ rm -rf /useremain/rinkhals/apps/99-ace-autofeed 2>/dev/null
 
 ## Caveats / known limitations
 
+### Slot picking
 - The daemon assumes the FIRST slot in the `.acm` sidecar's `ams_box_mapping`
   is the one you want to feed. For single-colour prints this is correct.
   For multi-colour prints the slicer-generated `Tn` commands handle tool
@@ -169,17 +170,64 @@ rm -rf /useremain/rinkhals/apps/99-ace-autofeed 2>/dev/null
 - If the touchscreen's Color Match propagates `mmu.gate` correctly
   (Rinkhals issue #443 — fixed in some releases?), the daemon uses that
   signal preferentially over the .acm fallback.
-- Timeout: daemon waits up to 10 minutes for `target ≥ 190` before giving up.
+
+### Feed timing
+- Daemon waits up to 10 minutes for `target ≥ 190` before giving up.
   A very long LeviQ3 routine could in theory exceed this, in which case the
   feed never fires. Hasn't happened in practice on a 5×5 mesh.
-- This is a workaround. The proper fix is upstream in Rinkhals — see
-  the linked issue. Once that ships, this daemon becomes unnecessary.
+
+### Bed leveling on GoKlipper (confirmed stubs)
+The following standard Klipper commands are **non-functional on Anycubic's
+GoKlipper** (confirmed on Kobra 3 Combo, Rinkhals 20260501_01):
+
+| Command | Behavior |
+|---|---|
+| `BED_MESH_CALIBRATE` | Heats, wipes, stops at first probe point. No probe motion, no error. |
+| `BED_MESH_CLEAR` | No-op. State and `printer_mutable.cfg` unchanged. |
+| `BED_MESH_PROFILE REMOVE=default` | No-op. |
+| `RESPOND TYPE=command MSG="..."` | Command accepted but output never forwarded as a response event, so Fluidd/Mainsail `action:prompt_*` popups don't appear. |
+
+The only working bed-level command on GoKlipper is **`LEVIQ`**, which:
+- On a cold boot, does a full 25-point probe internally
+- On warm/subsequent calls, short-circuits to a center-only probe + Z-offset
+- Updates `[probe] z_offset` in `printer_mutable.cfg` but does NOT persist a
+  fresh `bed_mesh default` profile
+
+The active bed mesh is whichever was last saved by **touchscreen
+"Auto-leveling"** — that path uses Anycubic's internal MQTT auto-level
+which DOES persist a fresh 25-point mesh to `printer_mutable.cfg`, and
+that mesh applies to all subsequent prints from any source (touchscreen,
+Mainsail, Fluidd, Orca direct).
+
+**Practical workflow:** when you want a fresh mesh, press "Auto Leveling"
+on the touchscreen (~5 min). Daily prints use the saved mesh + LEVIQ
+Z-offset re-cal automatically.
+
+References:
+- Rinkhals issue [#400](https://github.com/jbatonnet/Rinkhals/issues/400)
+  ("ABL only proves 1 point in the center") — collaborator confirms LAN
+  print path skips MQTT auto-leveling, BMC is center-only "by design"
+- Rinkhals issue [#321](https://github.com/jbatonnet/Rinkhals/issues/321)
+  — silent console, LEVIQ Z-offset drift, related symptoms
+
+### LEVIQ injection
+The daemon injects `LEVIQ` at the top of every uploaded gcode file. This
+is largely **redundant** because Anycubic's firmware auto-calls LEVIQ
+before SDCARD prints anyway — but the injection is harmless (a second
+LEVIQ short-circuits to no-op) and protects against firmware variants
+that might skip it.
+
+### This is a workaround
+The proper fixes are upstream in GoKlipper. Once Anycubic implements
+working `BED_MESH_*` commands and forwards `RESPOND` output, this
+daemon becomes much less interesting.
 
 ## CLI flags
 
 ```
 --verbose, -v    DEBUG-level logging (polls visible every 1s)
 --dry-run        Log what it would send but don't actually call FEED_FILAMENT
+--no-inject      Disable LEVIQ injection (only auto-feed runs)
 --log-file PATH  Mirror logs to a file (with rotation: 500KB × 3 backups)
 ```
 
