@@ -119,37 +119,45 @@ why prints started from the screen don't hit this gotcha.)
 
 ## Auto-start at boot
 
-The daemon doesn't survive reboots by default. Options to fix this:
-
-### Option A — quick & dirty (re-run after each reboot)
-SSH in and run the start command above.
-
-### Option B — Rinkhals app (survives reboots AND Rinkhals updates)
-Create `/useremain/rinkhals/apps/99-ace-autofeed/` with `start.sh` and
-`stop.sh` scripts. Rinkhals's startup will pick them up automatically.
+Use [`install.sh`](./install.sh) — it sets up a proper Rinkhals user app
+that survives reboots AND Rinkhals upgrades:
 
 ```bash
-mkdir -p /useremain/rinkhals/apps/99-ace-autofeed
-cat > /useremain/rinkhals/apps/99-ace-autofeed/start.sh <<'EOF'
-#!/bin/sh
-nohup python3 /useremain/home/rinkhals/ace-autofeed/ace-autofeed.py \
-  --log-file /useremain/home/rinkhals/ace-autofeed/ace-autofeed.log \
-  > /dev/null 2>&1 &
-EOF
-cat > /useremain/rinkhals/apps/99-ace-autofeed/stop.sh <<'EOF'
-#!/bin/sh
-pkill -f ace-autofeed.py
-EOF
-chmod +x /useremain/rinkhals/apps/99-ace-autofeed/{start,stop}.sh
+ssh root@<printer-ip> 'curl -fsSL https://raw.githubusercontent.com/sharpmonk/ace-autofeed-rinkhals/main/install.sh | sh'
 ```
+
+This creates `/useremain/home/rinkhals/apps/99-ace-autofeed/` with the
+files Rinkhals's app loader expects:
+
+```
+99-ace-autofeed/
+├── app.sh        # start | stop | status subcommands (called by Rinkhals on boot)
+├── app.json      # metadata: $version, name, description
+└── .enabled      # marker file — without this, the app won't auto-start
+```
+
+Manual control if needed:
+```bash
+sh /useremain/home/rinkhals/apps/99-ace-autofeed/app.sh status
+sh /useremain/home/rinkhals/apps/99-ace-autofeed/app.sh stop
+sh /useremain/home/rinkhals/apps/99-ace-autofeed/app.sh start
+```
+
+> **Note:** earlier versions of this README pointed to `/useremain/rinkhals/apps/`
+> with `start.sh`/`stop.sh` scripts. That path is **wrong** — Rinkhals's app
+> loader looks at `/useremain/home/rinkhals/apps/` (`USER_APP_PATH`) and only
+> picks up apps with `app.sh` + `app.json` + `.enabled`. The current
+> `install.sh` migrates from the legacy layout automatically.
 
 ## Uninstall
 
 ```bash
 ssh root@<printer-ip>
-pkill -f ace-autofeed.py
+sh /useremain/home/rinkhals/apps/99-ace-autofeed/app.sh stop
 rm -rf /useremain/home/rinkhals/ace-autofeed
-rm -rf /useremain/rinkhals/apps/99-ace-autofeed  # if you set up auto-start
+rm -rf /useremain/home/rinkhals/apps/99-ace-autofeed
+# Legacy cleanup — only needed if you ever installed an older version:
+rm -rf /useremain/rinkhals/apps/99-ace-autofeed 2>/dev/null
 ```
 
 ## Caveats / known limitations
