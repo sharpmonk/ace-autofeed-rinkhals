@@ -8,8 +8,15 @@ upstream bugs:
 
   1. The missing auto-load step in the Color Match -> Print flow (and
      SDCARD_PRINT_FILE from any source) — fixed by FEED_FILAMENT injection.
-  2. Orca-direct prints skipping LeviQ3 bed level — fixed by prepending
-     `LEVIQ` to uploaded gcode files that don't already include it.
+  2. Orca-direct prints skipping LeviQ3 bed level — partially fixed by
+     prepending `LEVIQ` at the top of uploaded gcode files (firmware
+     auto-calls LEVIQ before SDCARD prints anyway, so this is largely
+     redundant — but harmless and protects against firmware variants that
+     skip it). For a fresh 25-point mesh, invoke the FRESH_MESH macro
+     manually from Fluidd when the bed is clear; per-phase sequence works
+     in standby state but firmware short-circuits LEVIQ_PROBE during
+     prints regardless of how it's invoked (see v9 → v10 reversal note
+     in inject_leviq).
 
 Behaviour:
   Print-start watcher (main thread):
@@ -203,7 +210,9 @@ def gcode_has_leviq(filepath, log):
                     return True
                 # Strip inline comments and uppercase for case-insensitive match
                 stripped = line.split(";", 1)[0].strip().upper()
-                if stripped == "LEVIQ" or stripped.startswith("LEVIQ "):
+                if (stripped == "LEVIQ"
+                        or stripped.startswith("LEVIQ ")
+                        or stripped.startswith("LEVIQ_")):
                     return True
         return False
     except Exception as e:
@@ -221,6 +230,18 @@ def inject_leviq(filepath, log):
     its caching window it short-circuits to a center probe + Z-offset only.
     The saved bed mesh profile remains loaded either way, so bed-shape
     compensation always applies.
+
+    v9 attempted to inject the per-phase sequence (LEVIQ_AUTO_ZOFFSET_ON_OFF /
+    PREHEATING / WIPING / PROBE / SAVE_CONFIG) to force a fresh mesh, but
+    confirmed via gklib log analysis 2026-05-15 that GoKlipper has separate
+    code paths for LEVIQ_PROBE based on print_stats.state — "printing" always
+    short-circuits to center-only regardless of which macro is invoked. The
+    per-phase injection just wasted ~5 min per print without producing a
+    fresh mesh. Reverted in v10.
+
+    For an on-demand fresh mesh from Fluidd, use the FRESH_MESH gcode_macro
+    defined in printer.custom.cfg (calls the same per-phase sequence — works
+    because the printer is in standby state when invoked manually).
     """
     tmp = filepath + ".ace-autofeed-tmp"
     header = f"{INJECTION_MARKER}\nLEVIQ\n"
@@ -233,7 +254,7 @@ def inject_leviq(filepath, log):
                     break
                 dst.write(chunk)
         os.replace(tmp, filepath)
-        log.info(f"injected LEVIQ into {os.path.basename(filepath)}")
+        log.info(f"injected LeviQ sequence into {os.path.basename(filepath)}")
         return True
     except Exception as e:
         log.warning(f"failed to inject LEVIQ into {filepath}: {e}")
@@ -326,7 +347,7 @@ def main():
     )
     log = logging.getLogger("ace-autofeed")
     log.info(
-        f"ace-autofeed v8 started (dry_run={args.dry_run}, "
+        f"ace-autofeed v10 started (dry_run={args.dry_run}, "
         f"poll={POLL_INTERVAL}s, wait_target>={FEED_TARGET_MIN}, "
         f"inject_leviq={not args.no_inject})"
     )
