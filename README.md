@@ -95,6 +95,28 @@ tail -f /useremain/home/rinkhals/ace-autofeed/ace-autofeed.log
    ```
 4. Print should now extrude normally.
 
+## Sending direct from OrcaSlicer — pre-select the slot
+
+When you upload-and-print from Orca (Print Plate → Send to printer & Print)
+the daemon will catch the print and feed automatically. **However**, the
+slot it picks depends on the priority chain in `pick_slot()`:
+
+1. `mmu.gate` (if ≥ 0)
+2. `.acm` sidecar's first `ams_box_mapping[].ams_index`
+3. First ready slot in `filament_hub.slots[]`
+
+`mmu.gate` is **persistent** — it carries over from the previous print
+(or boot default `-1`). So if your last print used slot 3 but you sliced
+this one in Orca for slot 2, the daemon will still pick slot 3.
+
+**Workaround**: before hitting Print in Orca, open Fluidd or Mainsail's
+**MMU widget** and click the slot you actually want loaded. That sets
+`mmu.gate` to the right value, so the daemon's first-priority lookup
+matches your intent.
+
+(Touchscreen Color Match → Print does this for you automatically — that's
+why prints started from the screen don't hit this gotcha.)
+
 ## Auto-start at boot
 
 The daemon doesn't survive reboots by default. Options to fix this:
