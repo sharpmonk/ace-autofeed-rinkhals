@@ -4,6 +4,22 @@ A small workaround daemon for [Rinkhals](https://github.com/jbatonnet/Rinkhals)-
 Anycubic printers with the ACE Pro filament hub, fixing the bug where prints
 don't auto-load filament before extrusion.
 
+## Two implementations in this repo
+
+This repo holds **both** forms of the fix so the complete work lives in one place:
+
+- **`ace-autofeed.py`** — the original standalone daemon (polls Moonraker, fires
+  `FEED_FILAMENT`). Use this on any Rinkhals build that does **not** yet include
+  the upstreamed fix.
+- **`mmu_ace.py`** — the same auto-feed logic **upstreamed into Rinkhals core**
+  via [rinkhals-community/Rinkhals#19](https://github.com/rinkhals-community/Rinkhals/pull/19)
+  (merged). This is an **identical backup copy** of the merged component
+  (`files/4-apps/home/rinkhals/apps/40-moonraker/mmu_ace.py` at the PR #19 merge
+  commit `d288a2c`, md5 `2026b3df…`). On a Rinkhals build that includes the merge
+  this is active automatically and the standalone daemon is not needed. Kept here
+  as a backup mirror — see the PR for the full review history and hardening
+  (asyncio task-cancellation, configurable feed params, dead-print-state bail-out).
+
 ## What's the bug?
 
 On a fresh Rinkhals install with an ACE Pro, when you start a print:
